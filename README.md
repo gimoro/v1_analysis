@@ -1,6 +1,6 @@
 # Aim
 
-Code for analysis of dT-RoCKseq data.
+Code for analysis of dT-RoCKseq data. Code is based on the analysis performed for RoCK and ROI experiments (see https://github.com/imallona/rock_roi_paper).
 
 # Figures
 
@@ -21,3 +21,11 @@ Code for analysis of dT-RoCKseq data.
 **/FACS_analysis/titration_v1**: Figure 2a-b <br />
 **/FACS_analysis/titration_v1_low_modification**: Figure 2c <br />
 **/FACS_analysis/triple_bead_modification**: Figure 2f
+
+# Authords
+
+Giulia Moro, Izaskun Mallona, Mark D. Robinson
+
+# License
+
+MIT
