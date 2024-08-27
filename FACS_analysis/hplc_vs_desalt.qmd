@@ -1,0 +1,343 @@
+---
+title: "hplc_vs_desalt"
+author: "Giulia Moro, Izaskun Mallona, Mark D. Robinson"
+format: 
+  pdf: 
+    toc: true
+    embed-resources: true
+    keep_md: true
+    documentclass: article
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontsize{8pt}{8pt}\selectfont
+
+### Load packages
+
+```{r,warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+library(flowCore)
+library(khroma)
+library(here)
+library(flowViz)
+library(ggcyto)
+library(ggplot2)
+library(ggridges)
+library(ggh4x)
+library(reshape2)
+library(ggrastr)
+library(svglite)
+
+```
+
+### Setting up knitr 
+
+```{r}
+
+knitr::opts_chunk$set(fig.width = 2.7,
+               fig.height = 2.7,
+               fig.align = "center",
+               include = TRUE,
+               dev = c("png","svg"),
+               cache=TRUE,
+               cache.lazy = FALSE,
+               warning = TRUE,
+               message = TRUE)
+
+```
+
+### Themes
+
+```{r}
+
+rock_roi_theme<-function(){
+  theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        aspect.ratio=1,
+        legend.key.size = unit(0.5, 'cm'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+}
+
+facs_rock_roi_theme_multiple_panels<-function(){
+    theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        aspect.ratio=1,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.border = element_rect(colour = "black", fill = NA))
+}
+
+facs_hist_rock_roi_theme<-function(){
+  theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        aspect.ratio=1,
+        legend.key.size = unit(0.5, 'cm'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.border=element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background=element_rect(colour="white", 
+                                               fill="white"))
+}
+
+```
+
+### Importing data
+
+```{r}
+fpath<-"/Users/gimoro/Desktop/v1_analysis_thesis/FACS_data/data/phosph desalt hplc"
+rdss <- dir(fpath, "*.fcs", 
+            recursive = TRUE, full.names = TRUE)
+
+datadir <- dirname(rdss)[1] # folder where the .rds files are 
+
+```
+
+### Reading data
+
+```{r}
+
+titration<-read.flowSet(rdss)
+
+sampleNames(titration) <- gsub("Specimen_001_", "", sampleNames(titration))
+sampleNames(titration) <- gsub(".fcs", "", sampleNames(titration))
+
+pData(titration)$name<-gsub("Specimen_001_", "", pData(titration)$name)
+pData(titration)$name<-gsub(".fcs", "", pData(titration)$name)
+
+# reordering data
+
+titration<-titration[c(5,4,6,1,3,2)]
+
+sampleNames(titration)<-c("pos","neg","unmod","desalt_p","hplc_unp","hplc_p")
+pData(titration)$name<-c("pos","neg","unmod","desalt_p","hplc_unp","hplc_p")
+
+```
+
+### Gate
+
+```{r,out.width="70%"}
+
+sqrcut <- matrix(c(40000,50000,60000,70000,80000,100000,
+                   110000,100000,80000,70000,60000,50000,40000,
+                   70000,115000,130000,135000,135000,120000,100000,
+                   55000,50000,48000,50000,55000,70000),ncol=2,nrow=13)
+
+colnames(sqrcut) <- c("FSC-A","SSC-A")
+
+beads <- polygonGate(filterId="beads", gate= sqrcut)
+
+plot<-ggcyto(titration, aes(x = FSC.A, y = SSC.A)) + 
+  geom_hex(bins = 100) + 
+  facet_wrap(~factor(name,levels = c("pos","neg","unmod","desalt_p",
+                                     "hplc_unp","hplc_p")),ncol = 3) +
+  geom_gate(beads) + 
+  geom_stats(type = c("percent"),size = 2,adjust=c(0.7,2)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))+
+  facs_rock_roi_theme_multiple_panels()
+
+plot<-rasterize(plot, layers='Point', dpi=300)
+
+plot
+
+gs <- GatingSet(titration) # create a GatingSet
+gs_pop_add(gs, beads,parent="root")
+recompute(gs)
+
+# check filtering 
+
+filt_titration <- Subset(titration, beads)
+
+ggcyto(filt_titration, aes(x = FSC.A, y = SSC.A)) + 
+  geom_hex(bins = 100) + 
+  facet_wrap(~factor(name, levels = c("pos","neg","unmod",
+                                      "desalt_p","hplc_unp","hplc_p"))) +
+  geom_gate(beads) + 
+  theme_bw() +
+  facs_rock_roi_theme_multiple_panels()
+
+```
+
+### Trasformation data biexponential
+
+```{r,out.width="70%"}
+
+ggcyto(filt_titration, aes(x = "APC-A", fill = name,color=name)) + 
+  geom_histogram(alpha = 1,bins=256) + 
+  scale_x_flowjo_biexp() +
+  facet_wrap(~factor(name, levels = c("pos","neg","unmod","desalt_p",
+                                      "hplc_unp","hplc_p")),
+             ncol=1,switch = "y")+
+  theme_bw() +
+  facs_hist_rock_roi_theme()+
+  theme(strip.placement = "outside")+
+  theme(legend.position = "none")+
+  theme(strip.text = element_text(size=5,face="bold"))+
+  force_panelsizes(rows = unit(0.25, "in"),
+                   cols = unit(2.5, "in"))+
+  theme(panel.spacing = unit(0.1, "lines"))+
+  theme(strip.text.y = element_blank())+
+  theme(axis.line = element_line())+
+  scale_fill_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))+
+    scale_color_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))
+  
+```
+
+### Boxplots
+
+```{r,out.width="70%"}
+
+list_filt_titration<-list()
+
+for (i in 1:length(filt_titration)){
+  list_filt_titration[[sampleNames(filt_titration)[[i]]]]<-
+    as.data.frame(filt_titration[[i]]@exprs)$"APC-A"
+}
+
+plottable<-melt(list_filt_titration)
+
+ggplot(plottable,aes(x=factor(L1,levels=c("pos","neg","unmod",
+                                          "desalt_p","hplc_unp","hplc_p")),
+                     y=value))+
+  geom_boxplot(aes(fill=L1),width=0.8,outlier.size = 0.5)+
+  scale_y_flowjo_biexp()+
+  theme_bw()+
+  xlab("sample")+
+  ylab("APC-A Atto647N")+
+  rock_roi_theme()+
+  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))+
+  scale_fill_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))
+  
+```
+### Show same forward and side scatter
+
+```{r,out.width="70%"}
+
+list_filt_titration<-list()
+
+for (i in 1:length(filt_titration)){
+  list_filt_titration[[sampleNames(filt_titration)[[i]]]]<-
+    as.data.frame(filt_titration[[i]]@exprs)$"APC-A"
+}
+
+plottable<-melt(list_filt_titration)
+
+ggplot(plottable,aes(x=factor(L1,levels=c("pos","neg","unmod",
+                                          "desalt_p","hplc_unp","hplc_p")),
+                     y=value))+
+   scale_y_flowjo_biexp()+
+  geom_violin(aes(fill=L1,alpha=1),size=0.1)+
+  stat_summary(fun=mean, 
+               geom="crossbar", 
+               width=0.3)+
+  theme_bw()+
+  xlab("sample")+
+  ylab("APC-A Atto647N")+
+  rock_roi_theme()+
+  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5))+
+    scale_fill_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))+
+  scale_color_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))
+
+```
+
+### Calculating mean and sd
+
+```{r,out.width="70%"}
+
+list_filt_titration<-list()
+
+for (i in 1:length(filt_titration)){
+  list_filt_titration[[sampleNames(filt_titration)[[i]]]]<-as.data.frame(filt_titration[[i]]@exprs)$"APC-A"
+}
+
+plottable<-melt(list_filt_titration)
+
+deviation<-aggregate(plottable$value, list(plottable$L1), FUN=sd)
+mean<-aggregate(plottable$value, list(plottable$L1), FUN=mean)
+
+summarized<-deviation
+summarized$mean<-mean$x
+colnames(summarized)<-c("sample","deviation","mean")
+
+
+ggplot(summarized,aes(x=factor(sample,levels=c("pos","neg","unmod",
+                                               "desalt_p","hplc_unp","hplc_p")),
+                      y=mean))+
+   geom_point(aes(color=sample))+
+   geom_errorbar(aes(ymin=mean-deviation, 
+                     ymax=mean+deviation,color=sample), width=.2,
+                 position=position_dodge(0.05))+
+  theme_bw()+
+ scale_color_manual(values=c(pos="#882155",
+                             neg="#C0C0C0",
+                             unmod="black",
+                             "desalt_p"="#12783D",
+                             "hplc_unp"="#12783D",
+                             "hplc_p"="#12783D"))+
+  theme(legend.position = "none")
+
+```
+
+
+### Session info
+
+```{r}
+
+sessionInfo()
+
+```
+
