@@ -304,7 +304,7 @@ ggplot(plottable,aes(x=factor(L1,levels=c("pos","neg","unmod",
 
 ```
 
-### With line to show it s linear
+### Corr
 
 ```{r,out.width="70%"}
 
@@ -337,7 +337,8 @@ ggplot(summarized,aes(x=factor(sample,levels=c("pos","neg","unmod",
                              "100"="#12783D",
                              "50"="#99CA3C",
                              "25"="#99CA3C",
-                             "10"="#99CA3C"))
+                             "10"="#99CA3C"))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 
 sub<-summarized[c(1:5),]
@@ -356,7 +357,8 @@ ggplot(sub,aes(x=sample,y=mean))+
                              "10"="#99CA3C"))+
   theme(legend.position = "none")+
   xlab("sample")+
-  ylab("APC-A Atto647N")
+  ylab("APC-A Atto647N")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 
 fit<-lm(sub$mean~ sub$sample)
