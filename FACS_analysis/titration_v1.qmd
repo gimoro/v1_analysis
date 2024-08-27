@@ -389,14 +389,6 @@ for_corr$L1<-as.integer(for_corr$L1)
 
 cor(for_corr$value, for_corr$L1 , method = c("pearson"))
 
-# test to see if exponential 
-
-test<-lm(value ~ L1,data=for_corr)
-
-plot(test)
-
-# seems to be slightly exponential
-
 ```
 
 ### Session info
