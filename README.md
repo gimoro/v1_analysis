@@ -4,10 +4,10 @@ Code for analysis of dT-RoCKseq data.
 
 # Figures
 
-**v1_first_experiment**: code for Figure 3c-f,h, Supp Figure 5
-**v1_second_experiment**: code for Figure 4f-g, Supp Figure 6
-**v1_third_experiment**: code for Figure 5c-e,g, Supp Figure 7a-c
-**Gviz v1 experiments**: code for Figure 3g, 4e, 5f
+**v1_first_experiment**: Figure 3c-f,h, Supp Figure 5
+**v1_second_experiment**: Figure 4f-g, Supp Figure 6
+**v1_third_experiment**: Figure 5c-e,g, Supp Figure 7a-c
+**Gviz v1 experiments**: Figure 3g, 4e, 5f
 **Mapping_stats**: Supp Tables 3-4
 **downsampling_all_count_tables**: Figure 5h, Supp Figure 7e-i
 **/FACS_analysis/exo_test_v1**: Figure 2d
