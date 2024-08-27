@@ -1,0 +1,804 @@
+---
+title: "v1_second_experiment"
+author: "Giulia Moro, Izaskun Mallona, Mark D. Robinson"
+format: 
+  pdf: 
+    toc: true
+    embed-resources: true
+    keep_md: true
+    documentclass: article
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontsize{8pt}{8pt}\selectfont
+
+### Load packages, load data 
+
+```{r,warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+library(SingleCellExperiment)
+library(scran)
+library(ggplot2)
+library(dplyr)
+library(scater)
+library(reshape2)
+library(UpSetR)
+library(limma)
+library(cowplot)
+library(pheatmap)
+library(readr)
+library(plotROC)
+library(here)
+library(RColorBrewer)
+library(ggnewscale)
+library(scales)
+library(rmarkdown)
+library(irlba)
+library(viridis)
+library(gridExtra)
+library(googlesheets4)
+library(tools)
+library(viridis)
+library(scDblFinder)
+library(ggrastr)
+library(khroma)
+library(Matrix)
+library(edgeR)
+library(GGally)
+
+```
+
+### Setting up knitr 
+
+```{r}
+
+knitr::opts_chunk$set(fig.width = 2.7,
+               fig.height = 2.7,
+               fig.align = "center",
+               include = TRUE,
+               dev = c("png","svg"),
+               cache=TRUE,
+               cache.lazy = FALSE,
+               warning = TRUE,
+               message = TRUE)
+
+```
+
+### Themes
+
+```{r}
+
+rock_roi_theme<-function(){
+  theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        aspect.ratio=1,
+        legend.key.size = unit(0.5, 'cm'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+}
+
+rock_roi_theme_multiple_panels<-function(){
+    theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        aspect.ratio=1,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=7),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.border = element_rect(colour = "black", fill = NA))
+}
+
+```
+
+### Defining colors
+
+```{r,out.width = '70%'}
+
+myscale<-c("#AA3377","#66CCEE","#009988","#DDCC77")
+
+# defining colors for samples and for species
+
+names(myscale) <- c("unmod","s_24","3_prime","s_44")
+
+#plot(1:4, col=myscale, pch=19, cex=4)
+
+```
+
+### Load data
+
+```{r}
+
+exps <- c('unmod','s_24','s_44','3_prime')
+d <- list()
+
+fpath<-'/Users/gimoro/Desktop/v1_analysis_thesis/data_second_experiment'
+
+for (experiment in exps) {
+
+    counts <- readMM(file.path(fpath,experiment,'matrix.mtx'))
+    genes <- read.table(file.path(fpath,experiment,'features.tsv'),header = FALSE)
+    cell_ids <- read.table(file.path(fpath,experiment,'barcodes.tsv'),header = FALSE)
+
+    gene_ids <- paste0(genes$V1,'_',genes$V2)
+    cell_ids<-cell_ids$V1
+    
+    rownames(counts) <- gene_ids
+    colnames(counts) <- cell_ids
+    
+    d[[experiment]] <- SingleCellExperiment(counts)
+    
+    rowData(d[[experiment]])$gene_type<-"capture"
+    k<-grepl("^ENSMUS",rownames(d[[experiment]]))
+    rowData(d[[experiment]])$gene_type[k]<-"mouse_gene"
+    k <- grepl("^mt",genes$V2)
+    rowData(d[[experiment]])$gene_type[k]<-"mouse_mito"
+    
+    d[[experiment]]$sample_id<-experiment
+    mainExpName(d[[experiment]])<-experiment
+
+    rm(counts, genes, cell_ids)
+}
+
+sce <- Reduce(cbind, d)
+
+table(sce$sample_id)
+
+```
+
+### Non-downsampled QC plots UMIs and genes
+
+```{r,out.width = '70%'}
+
+names(assays(sce))<-"counts"
+
+rd <- rowData(sce)
+sce <- addPerCellQCMetrics(sce,
+                           subsets=list(capture=rd$gene_type=="capture",
+                                        mouse_gene=rd$gene_type=="mouse_gene",
+                                        mouse_mito=rd$gene_type=="mouse_mito"))
+
+cd <- colData(sce) %>% as.data.frame 
+
+table(sce$sample_id)
+
+plot1<-ggplot(cd, aes(x=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44")), 
+                      y=detected)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  xlab("")+
+  ylab("# genes")+ 
+  geom_jitter(aes(color=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              size=0.1)+
+  geom_boxplot(width=0.3,
+               outlier.size = 0.5,
+               alpha=0.5)+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("unmod","s_24",
+                              "3_prime","s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot1<-rasterize(plot1, layers='Point', dpi=1000)
+
+plot1
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/
+       v1_second_experiment_files/figure-html/genes.svg", 
+       plot=plot1, 
+       width=2.7, 
+       height=2.7)
+
+plot2<-ggplot(cd, aes(x=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44")), 
+                      y=total)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  xlab("")+
+  ylab("# transcripts")+ 
+  geom_jitter(aes(color=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              alpha=0.3,
+              size=0.1)+
+  geom_boxplot(width=0.3,
+               outlier.size = 0.5,
+               alpha=0.5)+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("unmod","s_24",
+                              "3_prime","s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot2<-rasterize(plot2, layers='Point', dpi=1000)
+
+plot2
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/
+       v1_second_experiment_files/figure-html/total.svg",
+       plot=plot2, 
+       width=2.7, 
+       height=2.7)
+
+plot3<-ggplot(cd, aes(x=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44")), 
+                      y=subsets_mouse_mito_percent)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  geom_jitter(aes(color=factor(sample_id,levels=c("unmod","s_24",
+                                                  "3_prime","s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              alpha=0.3,
+              size=0.1)+
+  xlab("")+
+  ylab("mitochondrial transcripts (%)")+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("unmod","s_24","3_prime","s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot3<-rasterize(plot3, layers='Point', dpi=1000)
+
+plot3
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/percent_mito.svg", 
+       plot=plot3, 
+       width=2.7, 
+       height=2.7)
+
+```
+
+### Downsampling data
+
+```{r}
+
+for (i in d){
+  print(paste0(mainExpName(i),"_",sum(assay(i)))) 
+  # 3' is the one with lowest with 47816550
+}
+
+```
+
+### Checking colsums for each cell
+
+```{r}
+c('unmod','s_24','s_44','3_prime')
+mean(colSums(assay(d[["unmod"]]))) 
+mean(colSums(assay(d[["s_24"]]))) 
+mean(colSums(assay(d[["s_44"]]))) 
+mean(colSums(assay(d[["3_prime"]]))) # lowest 3_prime 4165.93
+
+proportion_unmod<-mean(colSums(assay(d[["3_prime"]])))/
+                  mean(colSums(assay(d[["unmod"]])))
+proportion_s_24<-mean(colSums(assay(d[["3_prime"]])))/
+                 mean(colSums(assay(d[["s_24"]])))
+proportion_s_44<-mean(colSums(assay(d[["3_prime"]])))/
+                 mean(colSums(assay(d[["s_44"]])))
+
+test_unmod<-downsampleMatrix(x=assay(d[["unmod"]]), 
+                             prop=proportion_unmod, 
+                             bycol = TRUE, 
+                             sink = NULL)
+test_s_24<-downsampleMatrix(x=assay(d[["s_24"]]), 
+                            prop=proportion_s_24, 
+                            bycol = TRUE, 
+                            sink = NULL)
+test_s_44<-downsampleMatrix(x=assay(d[["s_44"]]), 
+                            prop=proportion_s_44, 
+                            bycol = TRUE, 
+                            sink = NULL)
+
+# checking if it is to the same mean colsum
+
+mean(colSums(assay(d[["3_prime"]])))
+mean(colSums(test_unmod))
+mean(colSums(test_s_24))
+mean(colSums(test_s_44))
+
+# generating sce objects
+
+downsampled_d<-d
+
+assay(downsampled_d[["unmod"]])<-test_unmod
+assay(downsampled_d[["s_24"]])<-test_s_24
+assay(downsampled_d[["3_prime"]])<-assay(d[["3_prime"]])
+assay(downsampled_d[["s_44"]])<-test_s_44
+
+rm(d)
+
+downsampled_d$unmod$sample_id<-"downsampled_unmod"
+downsampled_d$s_24$sample_id<-"downsampled_s_24"
+downsampled_d$"3_prime"$sample_id<-"downsampled_3_prime"
+downsampled_d$s_44$sample_id<-"downsampled_s_44"
+
+rm(sce)
+
+sce <- Reduce(cbind, downsampled_d)
+
+table(sce$sample_id)
+
+```
+
+### Data QC
+
+```{r}
+
+rowData(sce)$gene_type %>% table
+
+```
+
+### QC plots
+
+```{r,out.width = '70%'}
+
+names(assays(sce))<-"counts"
+
+rd <- rowData(sce)
+sce <- addPerCellQCMetrics(sce,
+                           subsets=list(capture=rd$gene_type=="capture",
+                                        mouse_gene=rd$gene_type=="mouse_gene",
+                                        mouse_mito=rd$gene_type=="mouse_mito"))
+
+cd <- colData(sce) %>% as.data.frame 
+
+mean(cd[cd$sample_id=="downsampled_unmod",]$detected)
+
+plot1<-ggplot(cd, aes(x=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44")), 
+                      y=detected)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  xlab("")+
+  ylab("# genes")+ 
+  geom_jitter(aes(color=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              size=0.1)+
+  geom_boxplot(width=0.3,
+               outlier.size = 0.5,
+               alpha=0.5)+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("downsampled_unmod","downsampled_s_24",
+                              "downsampled_3_prime","downsampled_s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot1<-rasterize(plot1, layers='Point', dpi=1000)
+
+plot1
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/downsampled_genes.svg", plot=plot1, width=2.7, height=2.7)
+
+plot2<-ggplot(cd, aes(x=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44")), 
+                      y=total)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  xlab("")+
+  ylab("# transcripts")+ 
+  geom_jitter(aes(color=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              alpha=0.3,
+              size=0.1)+
+  geom_boxplot(width=0.3,
+               outlier.size = 0.5,
+               alpha=0.5)+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("downsampled_unmod","downsampled_s_24",
+                              "downsampled_3_prime","downsampled_s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot2<-rasterize(plot2, layers='Point', dpi=1000)
+
+plot2
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/downsampled_total.svg", 
+       plot=plot2, 
+       width=2.7, 
+       height=2.7)
+
+plot3<-ggplot(cd, aes(x=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44")), 
+                      y=subsets_mouse_mito_percent)) +
+        geom_violin()+  
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  geom_jitter(aes(color=factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                  "downsampled_3_prime","downsampled_s_44"))),
+              shape=16, 
+              position=position_jitter(0.2),
+              alpha=0.3,
+              size=0.1)+
+  xlab("")+
+  ylab("mitochondrial transcripts (%)")+
+  theme(legend.position="none")+
+  scale_color_manual(labels=c("downsampled_unmod","downsampled_s_24",
+                              "downsampled_3_prime","downsampled_s_44"), 
+                     values=c(myscale[["unmod"]],myscale[["s_24"]],
+                              myscale[["3_prime"]],myscale[["s_44"]]))
+
+plot3<-rasterize(plot3, layers='Point', dpi=1000)
+
+plot3
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/downsampled_percent_mito.svg", 
+       plot=plot3, 
+       width=2.7, 
+       height=2.7)
+  
+plot4<-ggplot(cd, aes(x = total,
+               y = detected,
+               colour = subsets_mouse_mito_percent)) +
+  geom_point(size=0.5,alpha=0.5,stroke=NA) +
+  scale_x_log10() + scale_y_log10() +
+  facet_wrap(~factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                        "downsampled_3_prime","downsampled_s_44")))+
+  theme_bw()+
+  xlab("# transcripts")+
+  ylab("# genes")+
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  scale_color_viridis()+
+  labs(colour="mt transcripts (%)")
+
+plot4<-rasterize(plot4, layers='Point', dpi=1000)
+
+plot4
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/downsampled_qc1.svg", 
+       plot=plot4, 
+       width=2.7, 
+       height=2.7)
+  
+plot5<-ggplot(cd, aes(x = total, y = subsets_mouse_mito_percent)) +
+  geom_point(size=0.5,alpha=0.5,stroke=NA) + 
+  scale_x_log10() + 
+  scale_y_sqrt() +
+  facet_wrap(~factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                        "downsampled_3_prime","downsampled_s_44")))+
+  geom_hline(yintercept=c(2,25), colour="orange") +
+  geom_vline(xintercept=c(2200), colour="orange") +
+  theme_bw()+
+  xlab("total number of transcripts")+
+  ylab("percent mitochondrial reads")+
+  theme_bw()+
+  rock_roi_theme_multiple_panels()
+
+plot5<-rasterize(plot5, layers='Point', dpi=1000)
+
+plot5
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/downsampled_qc2.svg", plot=plot5, width=2.7, height=2.7)
+ 
+```
+
+### Filtering dataset
+
+```{r}
+
+mito <- sce$subsets_mouse_mito_percent
+sce_filt <- sce[,sce$total>2200 & mito>2 & mito<25]
+sce_filt <- sce_filt[rowSums(assay(sce_filt,1))>2 | 
+                    rowData(sce_filt)$gene_type=="capture" ,] 
+
+rm(sce)
+
+```
+
+### Doublet removal
+
+```{r}
+
+sces_adj <- sce_filt
+counts(sces_adj) <- assay(sce_filt, 1)
+colnames(sces_adj) <- rownames(colData(sces_adj))
+
+sces_nd <- scDblFinder(sces_adj, samples = "sample_id")
+
+table(sces_nd$scDblFinder.class)
+
+sces_nd <- sces_nd[,sces_nd$scDblFinder.class=="singlet"]
+
+#saveRDS(sces_nd,"/Users/gimoro/Desktop/v1_analysis_thesis/data_second_experiment/sces_nd")
+
+rm(sce_filt,sces_nd)
+
+sces_nd<-readRDS(paste0("/Users/gimoro/Desktop/v1_analysis_thesis/",
+                 "data_second_experiment/sces_nd"))
+
+table(sces_nd$sample_id)
+
+```
+
+### Defining captured genes
+
+```{r}
+
+sces_nd$CDS<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       paste0("capture_sequence_double_egfp_egfp_",
+                                              "capture_sequence_double_egfp_egfp"),
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture"),])
+
+sces_nd$tx<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       paste0("capture_sequence_double_egfp_egfp_",
+                                              "capture_sequence_double_egfp_egfp"),
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture",
+                                       "5_UTR_egfp_WPRE_5_UTR_egfp_WPRE",
+                                       "3_UTR_egfp_WPRE_3_UTR_egfp_WPRE"),])
+
+```
+
+### Barplot percent positive cells
+
+```{r,out.width = '70%'}
+
+positive_cells<-data.frame(matrix(nrow=4,ncol=2))
+
+colnames(positive_cells)<-c("CDS","tx")
+
+cd<-colData(sces_nd)
+
+rownames(positive_cells)<-unique(cd$sample_id)
+
+
+for (i in rownames(positive_cells)){
+  positive_cells[i,1]<-length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+                       length(rownames(cd[which(cd$sample_id==i),]))*100
+  positive_cells[i,2]<-length(which(cd[which(cd$sample_id==i),]$tx>0))/
+                       length(rownames(cd[which(cd$sample_id==i),]))*100
+}
+
+plottable<-melt(positive_cells)
+plottable$sample<-rep(rownames(positive_cells),2)
+plottable
+
+plot8<-ggplot(data=plottable,
+       aes(x = factor(sample,levels=c("downsampled_unmod","downsampled_s_24",
+                                      "downsampled_3_prime","downsampled_s_44")),
+           y=value,color=variable,fill=variable)) +
+  geom_bar(stat="identity",
+           width = 0.8, 
+           position = position_dodge(width = 0.9))+
+  xlab(" ")+
+  ylab("positive cells (%)")+
+  theme_bw()+
+  labs(color='') +
+  ylim(0,100)+
+  theme_bw()+
+  rock_roi_theme()+
+  geom_text(aes(label=format(round(value,2),nsmall=2)), 
+            position=position_dodge2(width=1), 
+            hjust=-1,
+            show.legend=FALSE,
+            size=2,angle=90,
+            color="black")+
+  scale_fill_manual(values=c("CDS"="forestgreen",
+                             "tx"="white"))+
+  scale_color_manual(values=c("black",
+                              "black"))
+
+plot8
+
+plot8<-rasterize(plot8, layers='Point', dpi=1000)
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/percentage.svg", 
+       plot=plot8, 
+       width=2.7, 
+       height=2.7)
+  
+```
+
+### Number of UMIs for CDS and tx for each sample
+
+```{r,out.width = '70%'}
+
+cd<-as.data.frame(colData(sces_nd))[,c("CDS","tx","sample_id")]
+
+mean(cd[cd$sample_id=="downsampled_s_44",]$CDS)
+mean(cd[cd$sample_id=="downsampled_s_44",]$tx)
+
+plottable<-melt(cd)
+
+head(plottable)
+
+cd<-as.data.frame(colData(sces_nd))[,c("CDS","tx","sample_id")]
+
+mean(cd[cd$sample_id=="downsampled_mod_2",]$CDS)
+mean(cd[cd$sample_id=="downsampled_mod_2",]$tx)
+
+plottable<-melt(cd)
+
+freq<-as.data.frame(table(plottable$sample_id,
+                          plottable$variable,
+                          plottable$value))
+colnames(freq)<-c("sample_id","region","count","frequency")
+
+plot6<-ggplot(freq, aes(x = count, y = frequency))+
+  geom_bar(stat = "identity",position = position_dodge2(width = 0.2,  
+                                                        padding = 0.5),
+           aes(color=region, 
+               fill=region))+
+  facet_wrap(~factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                        "downsampled_3_prime","downsampled_s_44")))+
+  xlab(" ")+
+  ylab("frequency")+
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  scale_color_manual(values=c("CDS"="forestgreen",
+                              "tx"="grey"))+
+  scale_fill_manual(values=c("CDS"="forestgreen",
+                             "tx"="grey"))
+
+plot6<-rasterize(plot6, 
+                 layers='Point', 
+                 dpi=1000)
+
+plot6
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/first_percentage.svg", 
+       plot=plot6, 
+       width=5.4, 
+       height=5.4)
+
+```
+
+### Same plots but without the reads in the capture sequence region 
+
+```{r,out.width = '70%'}
+
+sces_nd$CDS<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture"),])
+
+sces_nd$tx<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture",
+                                       "5_UTR_egfp_WPRE_5_UTR_egfp_WPRE",
+                                       "3_UTR_egfp_WPRE_3_UTR_egfp_WPRE"),])
+
+cd<-as.data.frame(colData(sces_nd))[,c("CDS","tx","sample_id")]
+
+mean(cd[cd$sample_id=="downsampled_unmod",]$CDS)
+mean(cd[cd$sample_id=="downsampled_s_24",]$CDS)
+mean(cd[cd$sample_id=="downsampled_3_prime",]$CDS)
+mean(cd[cd$sample_id=="downsampled_s_44",]$CDS)
+
+plottable<-melt(cd)
+
+freq<-as.data.frame(table(plottable$sample_id,plottable$variable,plottable$value))
+colnames(freq)<-c("sample_id","region","count","frequency")
+
+head(plottable)
+
+plot10<-ggplot(plottable, aes(x = factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                                            "downsampled_3_prime","downsampled_s_44")), 
+                              y = value))+
+         geom_jitter(shape=16, 
+                     position=position_jitter(0.2),
+                     alpha=0.7,
+                     size=0.1,
+                     aes(color=variable))+
+  geom_boxplot(width=0.2,
+               outlier.size = 0.5,
+               alpha=1,
+               aes(color=variable),
+               outlier.color = "white")+
+  facet_wrap(~variable)+
+  theme_bw()+
+  xlab(" ")+
+  ylab("# transcripts")+
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  scale_color_manual(values=c("CDS"="forestgreen",
+                              "tx"="black"))+
+  theme(legend.position="none")
+
+plot10<-rasterize(plot10, layers='Point', dpi=1000)
+
+plot10
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/total_umis_no_44.svg", plot=plot10, width=5.4, height=2.7)
+
+positive_cells<-data.frame(matrix(nrow=4,ncol=2))
+
+colnames(positive_cells)<-c("CDS","tx")
+
+rownames(positive_cells)<-unique(cd$sample_id)
+
+cd<-colData(sces_nd)
+
+for (i in rownames(positive_cells)){
+  positive_cells[i,1]<-length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+                       length(rownames(cd[which(cd$sample_id==i),]))*100
+  positive_cells[i,2]<-length(which(cd[which(cd$sample_id==i),]$tx>0))/
+                       length(rownames(cd[which(cd$sample_id==i),]))*100
+}
+
+plottable<-melt(positive_cells)
+plottable$sample<-rep(rownames(positive_cells),2)
+plottable
+
+plot11<-ggplot(freq, aes(x = count, y = frequency))+
+  geom_bar(stat = "identity",position = position_dodge2(width = 0.2,  
+                                                        padding = 0.5),
+           aes(color=region, fill=region))+
+  facet_wrap(~factor(sample_id,levels=c("downsampled_unmod","downsampled_s_24",
+                                        "downsampled_3_prime","downsampled_s_44")))+
+  xlab(" ")+
+  ylab("frequency")+
+  theme_bw()+
+  rock_roi_theme_multiple_panels()+
+  scale_color_manual(values=c("CDS"="forestgreen",
+                              "tx"="grey"))+
+  scale_fill_manual(values=c("CDS"="forestgreen",
+                             "tx"="grey"))
+
+plot11<-rasterize(plot11, layers='Point', dpi=1000)
+
+plot11
+
+ggsave(file="/Users/gimoro/Desktop/v1_analysis_thesis/v1_second_experiment_files/
+       figure-html/second_percentage.svg",
+       plot=plot11, 
+       width=5.4, 
+       height=5.4)
+
+```
+
+### Session info
+
+```{r}
+
+sessionInfo()
+
+```
+
+
+
+

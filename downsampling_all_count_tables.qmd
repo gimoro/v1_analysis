@@ -1,0 +1,836 @@
+---
+title: "downsampling_count_tables"
+author: "Giulia Moro, Izaskun Mallona, Mark D. Robinson"
+format: 
+  pdf: 
+    toc: true
+    embed-resources: true
+    keep_md: true
+    documentclass: article
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontsize{8pt}{8pt}\selectfont
+
+### Load packages, load data 
+
+```{r,warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+library(SingleCellExperiment)
+library(scran)
+library(ggplot2)
+library(dplyr)
+library(scater)
+library(reshape2)
+library(UpSetR)
+library(limma)
+library(cowplot)
+library(pheatmap)
+library(readr)
+library(plotROC)
+library(here)
+library(viridis)
+library(RColorBrewer)
+library(ggnewscale)
+library(scales)
+library(rmarkdown)
+library(irlba)
+library(viridis)
+library(gridExtra)
+library(googlesheets4)
+library(tools)
+library(ggrastr)
+library(scDblFinder)
+
+```
+
+### Themes
+
+```{r}
+
+rock_roi_theme<-function(){
+  theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        aspect.ratio=1,
+        legend.key.size = unit(0.5, 'cm'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+}
+
+rock_roi_theme_multiple_panels<-function(){
+    theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        aspect.ratio=1,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=7),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.border = element_rect(colour = "black", fill = NA))
+}
+
+```
+
+### Setting up knitr 
+
+```{r}
+
+knitr::opts_chunk$set(fig.width = 2.7,
+               fig.height = 2.7,
+               fig.align = "center",
+               include = TRUE,
+               dev = c("png","svg"),
+               cache=TRUE,
+               cache.lazy = FALSE,
+               warning = TRUE,
+               message = TRUE)
+
+```
+
+### Data third experiment
+
+```{r}
+
+fpath<-'/Users/gimoro/Desktop/v1_analysis_thesis'
+
+exps <- c('unmod','mod')
+d_third <- list()
+
+for (experiment in exps) {
+
+    counts <- readMM(file.path(fpath,
+                               'data_third_experiment',
+                               experiment,
+                               'matrix.mtx'))
+    genes <- read.table(file.path(fpath,
+                                  'data_third_experiment',
+                                  experiment,
+                                  'features.tsv'),
+                        header = FALSE)
+    cell_ids <- read.table(file.path(fpath,
+                                     'data_third_experiment',
+                                     experiment,
+                                     'barcodes.tsv'),
+                           header = FALSE)
+
+    gene_ids <- paste0(genes$V1,'_',genes$V2)
+    cell_ids<-cell_ids$V1
+    
+    rownames(counts) <- gene_ids
+    colnames(counts) <- cell_ids
+    
+    d_third[[experiment]] <- SingleCellExperiment(counts)
+    
+    rowData(d_third[[experiment]])$gene_type<-"capture"
+    k<-grepl("^ENSMUS",rownames(d_third[[experiment]]))
+    rowData(d_third[[experiment]])$gene_type[k]<-"mouse_gene"
+    k <- grepl("^mt",genes$V2)
+    rowData(d_third[[experiment]])$gene_type[k]<-"mouse_mito"
+    
+    d_third[[experiment]]$sample_id<-experiment
+    mainExpName(d_third[[experiment]])<-experiment
+
+    rm(counts, genes, cell_ids)
+}
+
+```
+
+### Data second experiment
+
+```{r}
+
+exps <- c('unmod','s_24','s_44','3_prime')
+d_second <- list()
+
+for (experiment in exps) {
+
+    counts <- readMM(file.path(fpath,
+                               'data_second_experiment',
+                               experiment,'matrix.mtx'))
+    genes <- read.table(file.path(fpath,
+                                  'data_second_experiment',
+                                  experiment,
+                                  'features.tsv'),
+                        header = FALSE)
+    cell_ids <- read.table(file.path(fpath,
+                                     'data_second_experiment',
+                                     experiment,
+                                     'barcodes.tsv'),
+                           header = FALSE)
+
+    gene_ids <- paste0(genes$V1,'_',genes$V2)
+    cell_ids<-cell_ids$V1
+    
+    rownames(counts) <- gene_ids
+    colnames(counts) <- cell_ids
+    
+    d_second[[experiment]] <- SingleCellExperiment(counts)
+    
+    rowData(d_second[[experiment]])$gene_type<-"capture"
+    k<-grepl("^ENSMUS",rownames(d_second[[experiment]]))
+    rowData(d_second[[experiment]])$gene_type[k]<-"mouse_gene"
+    k <- grepl("^mt",genes$V2)
+    rowData(d_second[[experiment]])$gene_type[k]<-"mouse_mito"
+    
+    d_second[[experiment]]$sample_id<-experiment
+    mainExpName(d_second[[experiment]])<-experiment
+
+    rm(counts, genes, cell_ids)
+}
+
+```
+
+### Data first experiment 
+
+```{r}
+
+exps <- c('unmod_1','unmod_3','mod_2','mod_4')
+d_first <- list()
+
+for (experiment in exps) {
+
+    counts <- readMM(file.path(fpath,
+                               'data_first_experiment',
+                               experiment,
+                               'matrix.mtx'))
+    genes <- read.table(file.path(fpath,
+                                  'data_first_experiment',
+                                  experiment,
+                                  'features.tsv'),
+                        header = FALSE)
+    cell_ids <- read.table(file.path(fpath,
+                                     'data_first_experiment',
+                                     experiment,
+                                     'barcodes.tsv'),
+                           header = FALSE)
+
+    gene_ids <- paste0(genes$V1,'_',genes$V2)
+    cell_ids<-cell_ids$V1
+    
+    rownames(counts) <- gene_ids
+    colnames(counts) <- cell_ids
+    
+    d_first[[experiment]] <- SingleCellExperiment(counts)
+    
+    rowData(d_first[[experiment]])$gene_type<-"capture"
+    k<-grepl("^ENSMUS",rownames(d_first[[experiment]]))
+    rowData(d_first[[experiment]])$gene_type[k]<-"mouse_gene"
+    k <- grepl("^mt",genes$V2)
+    rowData(d_first[[experiment]])$gene_type[k]<-"mouse_mito"
+    
+    d_first[[experiment]]$sample_id<-experiment
+    mainExpName(d_first[[experiment]])<-experiment
+    rm(counts, genes, cell_ids)
+}
+
+```
+
+### Downsampling count tables
+
+```{r}
+
+mean(colSums(assay(d_first[["unmod_1"]]))) 
+mean(colSums(assay(d_first[["unmod_3"]]))) 
+mean(colSums(assay(d_first[["mod_2"]]))) 
+mean(colSums(assay(d_first[["mod_4"]]))) 
+mean(colSums(assay(d_second[["unmod"]]))) 
+mean(colSums(assay(d_second[["s_24"]]))) 
+mean(colSums(assay(d_second[["s_44"]]))) 
+mean(colSums(assay(d_second[["3_prime"]]))) # lowest one 4165.93
+mean(colSums(assay(d_third[["unmod"]]))) 
+mean(colSums(assay(d_third[["mod"]]))) 
+
+proportion_unmod_1<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_first[["unmod_1"]])))
+proportion_unmod_3<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_first[["unmod_3"]])))
+proportion_mod_4<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_first[["mod_4"]])))
+proportion_mod_2<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_first[["mod_2"]])))
+proportion_unmod_second<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_second[["unmod"]])))
+proportion_s_24<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_second[["s_24"]])))
+proportion_s_44<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_second[["s_44"]])))
+proportion_unmod_third<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_third[["unmod"]])))
+proportion_mod_third<-mean(colSums(assay(d_second[["3_prime"]])))/
+  mean(colSums(assay(d_third[["mod"]])))
+
+test_unmod_1<-downsampleMatrix(x=assay(d_first[["unmod_1"]]), 
+                               prop=proportion_unmod_1, 
+                               bycol = TRUE, 
+                               sink = NULL)
+test_unmod_3<-downsampleMatrix(x=assay(d_first[["unmod_3"]]), 
+                               prop=proportion_unmod_3, 
+                               bycol = TRUE, 
+                               sink = NULL)
+test_mod_4<-downsampleMatrix(x=assay(d_first[["mod_4"]]), 
+                             prop=proportion_mod_4, 
+                             bycol = TRUE, 
+                             sink = NULL)
+test_mod_2<-downsampleMatrix(x=assay(d_first[["mod_2"]]), 
+                             prop=proportion_mod_2, 
+                             bycol = TRUE, 
+                             sink = NULL)
+test_unmod_second<-downsampleMatrix(x=assay(d_second[["unmod"]]), 
+                                    prop=proportion_unmod_second, 
+                                    bycol = TRUE, 
+                                    sink = NULL)
+test_s_24<-downsampleMatrix(x=assay(d_second[["s_24"]]), 
+                            prop=proportion_s_24, 
+                            bycol = TRUE, 
+                            sink = NULL)
+test_s_44<-downsampleMatrix(x=assay(d_second[["s_44"]]), 
+                            prop=proportion_s_44, 
+                            bycol = TRUE, 
+                            sink = NULL)
+test_unmod_third<-downsampleMatrix(x=assay(d_third[["unmod"]]), 
+                                   prop=proportion_unmod_third, 
+                                   bycol = TRUE, 
+                                   sink = NULL)
+test_mod_third<-downsampleMatrix(x=assay(d_third[["mod"]]), 
+                                 prop=proportion_mod_third, 
+                                 bycol = TRUE, 
+                                 sink = NULL)
+
+# checking if it is to the same mean colsum
+
+mean(colSums(assay(d_second[["3_prime"]])))
+mean(colSums(test_unmod_1))
+mean(colSums(test_unmod_3))
+mean(colSums(test_mod_4))
+mean(colSums(test_mod_2))
+mean(colSums(test_unmod_second))
+mean(colSums(test_s_24))
+mean(colSums(test_s_44))
+mean(colSums(test_unmod_third))
+mean(colSums(test_mod_third))
+
+# generating sce objects
+
+downsampled_d<-c(d_first,d_second,d_third)
+names(downsampled_d)<-c("unmod_1","unmod_3",
+                        "mod_2","mod_4",
+                        "unmod_second",
+                        "s_24","s_44",
+                        "3_prime","unmod_third"
+                        ,"mod_third")
+
+assay(downsampled_d$unmod_1)<-test_unmod_1
+assay(downsampled_d$unmod_3)<-test_unmod_3
+assay(downsampled_d$mod_2)<-test_mod_2
+assay(downsampled_d$mod_4)<-test_mod_4
+assay(downsampled_d$"3_prime")<-assay(d_second[["3_prime"]])
+assay(downsampled_d$unmod_second)<-test_unmod_second
+assay(downsampled_d$s_24)<-test_s_24
+assay(downsampled_d$s_44)<-test_s_44
+assay(downsampled_d$unmod_third)<-test_unmod_third
+assay(downsampled_d$mod_third)<-test_mod_third
+
+rm(d)
+
+downsampled_d$unmod_1$sample_id<-"downsampled_unmod_1"
+downsampled_d$unmod_3$sample_id<-"downsampled_unmod_3"
+downsampled_d$mod_2$sample_id<-"downsampled_mod_2"
+downsampled_d$mod_4$sample_id<-"downsampled_mod_4"
+downsampled_d$"3_prime"$sample_id<-"downsampled_3_prime"
+downsampled_d$unmod_second$sample_id<-"downsampled_unmod_second"
+downsampled_d$s_24$sample_id<-"downsampled_s_24"
+downsampled_d$s_44$sample_id<-"downsampled_s_44"
+downsampled_d$unmod_third$sample_id<-"downsampled_unmod_third"
+downsampled_d$mod_third$sample_id<-"downsampled_mod_third"
+
+# downsampling to same cell barcodes
+
+second_exp<-readRDS(file.path(fpath,
+                    "/data_second_experiment/sces_nd"))
+first_exp<-readRDS(file.path(fpath,
+                   "/data_first_experiment/sces_nd"))
+third_exp<-readRDS(file.path(fpath,
+                   "/data_third_experiment/sces_nd"))
+
+downsampled_d$unmod_1<-downsampled_d$unmod_1[,colnames(first_exp
+                                                       [,first_exp$sample_id=="downsampled_unmod_1"])]
+downsampled_d$unmod_3<-downsampled_d$unmod_3[,sapply(strsplit(colnames(first_exp
+                                                                       [,first_exp$sample_id=="downsampled_unmod_3"]),
+                                                              ".",
+                                                              fixed=TRUE),
+                                                     head,1)] 
+# done because since barcodes are the same between unmod_1 and unmod_3 adds a 1 to them
+downsampled_d$mod_2<-downsampled_d$mod_2[,sapply(strsplit(colnames(first_exp
+                                                                   [,first_exp$sample_id=="downsampled_mod_2"]),
+                                                          ".",
+                                                          fixed=TRUE),
+                                                 head,1)]
+downsampled_d$mod_4<-downsampled_d$mod_4[,sapply(strsplit(colnames(first_exp
+                                                                   [,first_exp$sample_id=="downsampled_mod_4"]),
+                                                          ".",
+                                                          fixed=TRUE),
+                                                 head,1)]
+
+downsampled_d$unmod_second<-downsampled_d$unmod_second[,colnames(second_exp
+                                                                 [,second_exp$sample_id=="downsampled_unmod"])]
+downsampled_d$s_24<-downsampled_d$s_24[,sapply(strsplit(colnames(second_exp
+                                                                 [,second_exp$sample_id=="downsampled_s_24"]),
+                                                        ".",
+                                                        fixed=TRUE),
+                                               head,1)]
+downsampled_d$s_44<-downsampled_d$s_44[,sapply(strsplit(colnames(second_exp
+                                                                 [,second_exp$sample_id=="downsampled_s_44"]),
+                                                        ".",
+                                                        fixed=TRUE),
+                                               head,1)]
+downsampled_d$"3_prime"<-downsampled_d$"3_prime"[,sapply(strsplit(colnames(second_exp
+                                                                  [,second_exp$sample_id=="downsampled_3_prime"]),
+                                                                  ".",
+                                                                  fixed=TRUE),
+                                                         head,1)]
+
+downsampled_d$unmod_third<-downsampled_d$unmod_third[,colnames(third_exp
+                                                               [,third_exp$sample_id=="downsampled_unmod"])]
+downsampled_d$mod_third<-downsampled_d$mod_third[,sapply(strsplit(colnames(third_exp
+                                                                  [,third_exp$sample_id=="downsampled_rock"]),
+                                                                  ".",
+                                                                  fixed=TRUE),
+                                                         head,1)]
+
+```
+
+### Filtering of dataset based on same cells
+
+```{r}
+
+sce <- Reduce(cbind, downsampled_d)
+
+#saveRDS(sce,"/Users/gimoro/Desktop/v1_analysis_thesis/downsampled_sces_nd")
+
+rm(sce)
+
+sces_nd<-readRDS(file.path(fpath,"/downsampled_sces_nd"))
+
+```
+
+### Percent positive cells (no capture sequence region)
+
+```{r,out.width="70%"}
+
+names(assays(sces_nd))<-"counts"
+
+length(unique(sces_nd$sample_id))
+
+sces_nd$CDS<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture"),])
+
+sces_nd$tx<-colSums(counts(sces_nd)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture",
+                                       "5_UTR_egfp_WPRE_5_UTR_egfp_WPRE",
+                                       "3_UTR_egfp_WPRE_3_UTR_egfp_WPRE"),])
+
+cd<-as.data.frame(colData(sces_nd))[,c("CDS","tx","sample_id")]
+
+positive_cells<-data.frame(matrix(nrow=10,ncol=2))
+
+colnames(positive_cells)<-c("CDS","tx")
+
+rownames(positive_cells)<-unique(cd$sample_id)
+
+cd<-colData(sces_nd)
+
+for (i in rownames(positive_cells)){
+  positive_cells[i,1]<-length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+    length(rownames(cd[which(cd$sample_id==i),]))*100
+  positive_cells[i,2]<-length(which(cd[which(cd$sample_id==i),]$tx>0))/
+    length(rownames(cd[which(cd$sample_id==i),]))*100
+}
+
+```
+
+### Number UMIs CDS
+
+```{r,out.width="70%"}
+
+cd<-as.data.frame(colData(sces_nd))[,c("CDS","tx","sample_id")]
+
+for(i in unique(cd$sample_id)){
+  print(paste0(i,"__",mean(cd[cd$sample_id==i,]$CDS)))
+}
+
+```
+
+### Plot of proportion against positive cells and counts (just CDS)
+
+```{r,out.width="70%"}
+
+d<-data.frame(matrix(nrow=10,ncol=7))
+colnames(d)<-c("proportion","percent_positive","percent_positive_downsampled",
+               "percent_difference","counts",
+               "counts_downsampled","counts_difference")
+rownames(d)<-unique(cd$sample_id)
+d[1,1]<-proportion_unmod_1
+d[2,1]<-proportion_unmod_3
+d[3,1]<-proportion_mod_2
+d[4,1]<-proportion_mod_4
+d[5,1]<-proportion_unmod_second
+d[6,1]<-proportion_s_24
+d[7,1]<-proportion_s_44
+d[8,1]<-1
+d[9,1]<-proportion_unmod_third
+d[10,1]<-proportion_mod_third
+
+for(i in unique(cd$sample_id)){
+  print(paste0(i,"__",mean(cd[cd$sample_id==i,]$CDS)))
+  d[i,6]<-mean(cd[cd$sample_id==i,]$CDS)
+}
+
+for (i in rownames(positive_cells)){
+  print(paste0(i,"__",length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+                 length(rownames(cd[which(cd$sample_id==i),]))*100))
+  d[i,3]<-length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+    length(rownames(cd[which(cd$sample_id==i),]))*100
+}
+
+# percentages are recalculated based on removing the capture region
+
+d["downsampled_unmod_1",2]<-13.80233
+d["downsampled_unmod_3",2]<-12.66934
+d["downsampled_mod_2",2]<-25.29183
+d["downsampled_mod_4",2]<-28.27305
+d["downsampled_unmod_second",2]<-9.046677
+d["downsampled_s_24",2]<-21.085759
+d["downsampled_3_prime",2]<-16.603152
+d["downsampled_s_44",2]<-20.480538
+d["downsampled_unmod_third",2]<-12.09056
+d["downsampled_mod_third",2]<-28.05485
+
+d$percent_difference<-d$percent_positive-d$percent_positive_downsampled
+
+# counts are recalculated based on removing the capture region
+
+d["downsampled_unmod_1",5]<-0.1491111
+d["downsampled_unmod_3",5]<-0.1383324
+d["downsampled_mod_2",5]<-0.3014267
+d["downsampled_mod_4",5]<-0.3464086
+d["downsampled_unmod_second",5]<-0.09648689
+d["downsampled_s_24",5]<-0.2412798
+d["downsampled_3_prime",5]<-0.1812751
+d["downsampled_s_44",5]<-0.2304661
+d["downsampled_unmod_third",5]<-0.130927
+d["downsampled_mod_third",5]<-0.335529
+
+d$counts_difference<-d$counts-d$counts_downsampled
+
+d$sample_id<-rownames(d)
+  
+```
+
+### Plot of proportion against number of counts 
+
+```{r,out.width="70%"}
+
+plot1<-ggplot(d,aes(x=proportion,y=counts_difference,color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()
+
+plot1<-rasterize(plot1, layers='Point', dpi=1000)
+
+plot1
+
+ggsave(file.path(fpath,
+       "downsampled_counts.svg"), 
+       plot=plot1, 
+       width=5.4, 
+       height=2.7)
+
+plot2<-ggplot(d,aes(x=proportion,
+                    y=percent_difference,
+                    color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()
+
+plot2<-rasterize(plot2, layers='Point', dpi=1000)
+
+plot2
+
+ggsave(file.path(fpath,
+       "downsampled_percent.svg"), 
+       plot=plot2, 
+       width=5.4, 
+       height=2.7)
+
+
+plot3<-ggplot(d,aes(x=counts,y=counts_downsampled,
+                    color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()+
+  coord_fixed()+
+  ylim(0,0.40)+
+  xlim(0,0.40)+
+  geom_abline(intercept = 0, slope = 1)
+
+plot3
+
+plot3<-rasterize(plot3, layers='Point', dpi=1000)
+
+ggsave(file.path(fpath,
+       "counts_vs_downsampled_counts.svg"), 
+       plot=plot3, 
+       width=5.4, 
+       height=2.7)
+
+plot4<-ggplot(d,aes(x=proportion,
+                    y=counts,
+                    color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()
+
+plot4
+
+plot4<-rasterize(plot4, layers='Point', dpi=1000)
+
+ggsave(file.path(fpath,
+       "counts_vs_proportion.svg"), 
+       plot=plot4, 
+       width=5.4, 
+       height=2.7)
+
+plot5<-ggplot(d,aes(x=percent_positive,
+                    y=counts,
+                    color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()+
+  geom_smooth(method="lm",
+              color="black",
+              size=0.1)
+
+plot5
+
+plot5<-rasterize(plot5, 
+                 layers='Point', 
+                 dpi=1000)
+
+ggsave(file.path(fpath,
+       "counts_vs_percent_positive.svg"), 
+       plot=plot5, 
+       width=5.4, 
+       height=2.7)
+
+fit<-lm(d$counts~d$percent_positive)
+summary(fit)
+summary(fit)$adj.r.squared
+cor(d$counts,d$percent_positive)
+
+plot6<-ggplot(d,aes(x=percent_positive_downsampled,
+                    y=counts_downsampled,
+                    color=d$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()+
+  geom_smooth(method="lm",
+              color="black",
+              size=0.1)
+
+plot6
+
+fit<-lm(d$counts_downsampled~d$percent_positive_downsampled)
+summary(fit)
+summary(fit)$adj.r.squared
+cor(d$counts_downsampled,d$percent_positive_downsampled)
+
+plot6<-rasterize(plot6, layers='Point', dpi=1000)
+
+ggsave(file=file.path(fpath,
+       "counts_vs_percent_positive_downsampled.svg"), 
+       plot=plot6, 
+       width=5.4, 
+       height=2.7)
+
+```
+
+### Same with non-downsampled
+
+```{r,out.width="70%"}
+
+cells_first_exp<-colnames(first_exp)
+cells_second_exp<-colnames(second_exp)
+cells_third_exp<-colnames(third_exp)
+
+names(d_first)<-paste0("first_",names(d_first))
+names(d_second)<-paste0("second_",names(d_second))
+names(d_third)<-paste0("third_",names(d_third))
+
+mainExpName(d_first$first_unmod_1)<-"first_unmod_1"
+mainExpName(d_first$first_unmod_3)<-"first_unmod_3"
+mainExpName(d_first$first_mod_2)<-"first_mod_2"
+mainExpName(d_first$first_mod_4)<-"first_mod_4"
+mainExpName(d_second$second_unmod)<-"second_unmod"
+mainExpName(d_second$second_s_24)<-"second_s_24"
+mainExpName(d_second$second_s_44)<-"second_s_44"
+mainExpName(d_second$second_3_prime)<-"second_3_prime"
+mainExpName(d_third$third_unmod)<-"third_unmod"
+mainExpName(d_third$third_mod)<-"third_rock"
+
+d_first$first_unmod_1$sample_id<-"first_unmod_1"
+d_first$first_unmod_3$sample_id<-"first_unmod_3"
+d_first$first_mod_2$sample_id<-"first_mod_2"
+d_first$first_mod_4$sample_id<-"first_mod_4"
+d_second$second_unmod$sample_id<-"second_unmod"
+d_second$second_s_24$sample_id<-"second_s_24"
+d_second$second_s_44$sample_id<-"second_s_44"
+d_second$second_3_prime$sample_id<-"second_3_prime"
+d_third$third_unmod$sample_id<-"third_unmod"
+d_third$third_mod$sample_id<-"third_rock"
+
+d_first$first_unmod_1<-d_first$first_unmod_1[,colnames(first_exp
+                                                       [,first_exp$sample_id=="downsampled_unmod_1"])]
+d_first$first_unmod_3<-d_first$first_unmod_3[,sapply(strsplit(colnames(first_exp
+                                                                       [,first_exp$sample_id=="downsampled_unmod_3"]),
+                                                              ".",
+                                                              fixed=TRUE),
+                                                     head,1)]  
+d_first$first_mod_2<-d_first$first_mod_2[,sapply(strsplit(colnames(first_exp
+                                                                   [,first_exp$sample_id=="downsampled_mod_2"]),
+                                                          ".",
+                                                          fixed=TRUE),
+                                                 head,1)]
+d_first$first_mod_4<-d_first$first_mod_4[,sapply(strsplit(colnames(first_exp
+                                                                   [,first_exp$sample_id=="downsampled_mod_4"]),
+                                                          ".",
+                                                          fixed=TRUE),
+                                                 head,1)]
+
+d_second$second_unmod<-d_second$second_unmod[,colnames(second_exp
+                                                       [,second_exp$sample_id=="downsampled_unmod"])]
+d_second$second_s_24<-d_second$second_s_24[,sapply(strsplit(colnames(second_exp
+                                                                     [,second_exp$sample_id=="downsampled_s_24"]),
+                                                            ".",
+                                                            fixed=TRUE),
+                                                   head,1)]
+d_second$second_s_44<-d_second$second_s_44[,sapply(strsplit(colnames(second_exp
+                                                                     [,second_exp$sample_id=="downsampled_s_44"]),
+                                                            ".",
+                                                            fixed=TRUE),
+                                                   head,1)]
+d_second$second_3_prime<-d_second$second_3_prime[,sapply(strsplit(colnames(second_exp
+                                                                        [,second_exp$sample_id=="downsampled_3_prime"]),
+                                                                  ".",
+                                                                  fixed=TRUE),
+                                                         head,1)]
+
+d_third$third_unmod<-d_third$third_unmod[,colnames(third_exp
+                                                   [,third_exp$sample_id=="downsampled_unmod"])]
+d_third$third_mod<-d_third$third_mod[,sapply(strsplit(colnames(third_exp
+                                                               [,third_exp$sample_id=="downsampled_rock"]),
+                                                      ".",
+                                                      fixed=TRUE),
+                                             head,1)]
+
+first<-Reduce(cbind,d_first)
+second<-Reduce(cbind,d_second)
+third<-Reduce(cbind,d_third)
+
+sce_non_filt<-cbind(first,second,third)
+#saveRDS(sce_non_filt,"/Users/gimoro/Desktop/v1_analysis_thesis/sce_non_filt")
+sce_non_filt<-readRDS(file.path(fpath,"sce_non_filt"))
+
+names(assays(sce_non_filt))<-"counts"
+
+length(unique(sce_non_filt$sample_id))
+
+sce_non_filt$CDS<-colSums(counts(sce_non_filt)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture"),])
+
+sce_non_filt$tx<-colSums(counts(sce_non_filt)[c("ROI_egfp_ROI_egfp",
+                                       "RoCK_egfp_RoCK_egfp",
+                                       "5_to_ROI_egfp_5_to_ROI_egfp",
+                                       "3_to_capture_3_to_capture",
+                                       "5_UTR_egfp_WPRE_5_UTR_egfp_WPRE",
+                                       "3_UTR_egfp_WPRE_3_UTR_egfp_WPRE"),])
+
+cd<-as.data.frame(colData(sce_non_filt))[,c("CDS","tx","sample_id")]
+
+positive_cells<-data.frame(matrix(nrow=10,ncol=3))
+
+colnames(positive_cells)<-c("CDS","tx","counts")
+
+rownames(positive_cells)<-unique(cd$sample_id)
+
+cd<-colData(sce_non_filt)
+
+for (i in rownames(positive_cells)){
+  positive_cells[i,1]<-length(which(cd[which(cd$sample_id==i),]$CDS>0))/
+    length(rownames(cd[which(cd$sample_id==i),]))*100
+  positive_cells[i,2]<-length(which(cd[which(cd$sample_id==i),]$tx>0))/
+    length(rownames(cd[which(cd$sample_id==i),]))*100
+}
+
+positive_cells$sample_id<-rownames(positive_cells)
+
+cd<-as.data.frame(colData(sce_non_filt))[,c("CDS","tx","sample_id")]
+
+for(i in unique(cd$sample_id)){
+  positive_cells[i,3]<-mean(cd[cd$sample_id==i,]$CDS)
+}
+
+plot8<-ggplot(positive_cells,aes(x=CDS,
+                                 y=counts,
+                                 color=positive_cells$sample_id))+
+  geom_point()+
+  rock_roi_theme()+
+  theme_bw()+
+  geom_smooth(method="lm",color="black",size=0.1)
+
+plot8
+
+plot8<-rasterize(plot5, layers='Point', dpi=1000)
+
+ggsave(file=file.path(fpath,
+       "non_downsampled_counts_vs_percent_positive.svg"), 
+       plot=plot8, 
+       width=5.4, 
+       height=2.7)
+
+fit<-lm(positive_cells$counts~positive_cells$CDS)
+summary(fit)
+summary(fit)$adj.r.squared
+cor(d$counts,d$percent_positive)
+
+```
+
+### Session info
+
+```{r}
+
+sessionInfo()
+
+```
+

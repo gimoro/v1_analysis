@@ -1,0 +1,283 @@
+---
+title: "Gviz v1 experiments"
+author: "Giulia Moro, Izaskun Mallona, Mark D. Robinson"
+format: 
+  pdf: 
+    toc: true
+    embed-resources: true
+    keep_md: true
+    documentclass: article
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontsize{8pt}{8pt}\selectfont
+
+### Load packages, load data 
+
+```{r,warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+library(GenomicRanges)
+library(GenomicAlignments)
+library(rtracklayer)
+library(Gviz)
+library(plyranges)
+library(seqinr)
+library(Rsamtools)
+library(googlesheets4)
+library(tools)
+library(here)
+library(ggrastr)
+
+```
+
+### Setting up knitr 
+
+```{r}
+
+library(knitr)
+
+knitr::opts_chunk$set(fig.width = 5.4,
+               fig.height = 4,
+               fig.align = "center",
+               include = TRUE,
+               dev = c("png","svg"),
+               cache.lazy = FALSE,
+               cache=TRUE,
+               warning = TRUE,
+               message = TRUE)
+
+```
+
+### Loading .gtf files
+
+```{r}
+
+options(ucscChromosomeNames=FALSE)
+
+wd<-"/Users/gimoro/Desktop/v1_analysis_thesis"
+
+gtf<-dir(wd, ".*gtf", 
+            recursive = TRUE, full.names = TRUE)
+
+gtfs<-list()
+
+for (i in 1:length(gtf)){
+  gtfs[[i]]<-rtracklayer::import(gtf[[i]])
+}
+
+names(gtfs)<-c("3_prime","44_nt","24_nt")
+
+chr<-c("alien_egfp_WPRE")
+modality<-c("1_unmod_1","1_unmod_3","1_mod_2","1_mod_4")
+
+seqlevels(gtfs[["24_nt"]])<-"alien_egfp_WPRE"
+seqnames(gtfs[["24_nt"]])<-"alien_egfp_WPRE"
+
+```
+
+### Reading .bw files
+
+```{r}
+
+bw<-dir(wd, "coverage.*bw", 
+            recursive = TRUE, full.names = TRUE)
+
+names(bw) <- gsub("_coverage.bw", "", basename(bw))
+
+names(bw)[grep("first",names(bw))]<-gsub("first","1",names(bw)
+                                         [grep("first",names(bw))])
+names(bw)[grep("second",names(bw))]<-gsub("second","2",names(bw)
+                                          [grep("second",names(bw))])
+names(bw)[grep("third",names(bw))]<-gsub("third","3",names(bw)
+                                         [grep("third",names(bw))])
+
+datadir <- dirname(bw)[1] # folder where the .bw files are 
+
+```
+
+### Plotting .bw tracks for first experiment and third experiment
+
+```{r,out.width="70%"}
+
+chr<-c("alien_egfp_WPRE")
+modality_1<-c("1_unmod_1","1_unmod_3","1_mod_2","1_mod_4")
+modality_3<-c("3_unmod","3_mod")
+
+coverage<- lapply(bw, function(x) {
+    import.bw(x, as="GRanges")
+  })
+
+for (x in chr){
+  
+  coverage_chr<-list()
+
+    gm <- GeneRegionTrack(gtfs[["24_nt"]],
+                           chromosome=x,
+                           name="",
+                           geneSymbol=TRUE,
+                           showId=TRUE,
+                           transcriptAnnotation="gene")
+  
+  gm@range$gene<-gtfs[["24_nt"]]$gene_id
+  wanted_regions<-c("5_UTR_egfp_WPRE",
+                    "5_to_ROI_egfp",
+                    "ROI_egfp",
+                    "RoCK_egfp",
+                    "capture_sequence_double_egfp_egfp",
+                    "3_to_capture",
+                    "3_UTR_egfp_WPRE")
+  
+  gm@range<-gm@range[which(gm@range$gene %in% wanted_regions)]
+
+  displayPars(gm) <- list(fill=ifelse(gm@range$gene %in% 
+                                        gm@range$gene[grep("UTR",gm@range$gene)], 
+                                      "white", 
+                                      "forestgreen"))
+  
+  displayPars(gm)<-list(col="black",
+                           cex.group=0.5,
+                           col.line="black",
+                           fontcolor.group="black")
+  coverage_chr<-list()
+
+  for (i in 1:length(coverage)){
+    coverage_chr[[names(coverage)[[i]]]]<-DataTrack(coverage[[i]],
+                                chromosome=x,
+                                name=names(coverage)[[i]])
+  }
+
+  for (i in names(coverage_chr)){
+    displayPars(coverage_chr[[i]])<-list(col.histogram="black",
+                                        fill.histogram=TRUE)
+  }
+  
+  ranges_1<-c()
+  for (i in modality_1){
+      ranges_1[i]<-max(range(c(values(coverage_chr[[i]]), 
+                     values(coverage_chr[[i]]))))
+  }
+
+  ranges_3<-c()
+  for (i in modality_3){
+      ranges_3[i]<-max(range(c(values(coverage_chr[[i]]), 
+                     values(coverage_chr[[i]]))))
+  }
+      plotTracks(c(coverage_chr[["1_unmod_1"]],
+                 coverage_chr[["1_unmod_3"]],
+                 coverage_chr[["1_mod_2"]],
+                 coverage_chr[["1_mod_4"]],
+                 gm),
+            type="histogram",
+            from=start(gm@range)[1]-500,
+            to=gm@end,
+            cex.axis = 0.5,
+            cex.title=0.7,
+            background.title="white",
+            col.axis="black",
+            col.title="black",
+            col.border.title="black",
+            showSampleNames = TRUE,
+            lwd.title=0.5,
+            ylim=c(0,max(ranges_1)))
+    
+    plotTracks(c(coverage_chr[["3_unmod"]],
+                 coverage_chr[["3_mod"]],
+                 gm),
+            type="histogram",
+            from=start(gm@range)[1]-500,
+            to=gm@end,
+            cex.axis = 0.5,
+            cex.title=0.7,
+            background.title="white",
+            col.axis="black",
+            col.title="black",
+            col.border.title="black",
+            showSampleNames = TRUE,
+            lwd.title=0.5,
+            ylim=c(0,max(ranges_3)))
+}
+
+```
+
+### Plotting .bw for second experiment 
+
+```{r,out.width="70%"}
+
+chr<-c("alien_egfp_WPRE")
+
+modality<-c("2_mod_24","2_mod_3_prime","2_mod_44","2_unmod")
+
+seqlevels(gtfs[["44_nt"]])<-"alien_egfp_WPRE"
+seqnames(gtfs[["44_nt"]])<-"alien_egfp_WPRE"
+
+seqlevels(gtfs[["3_prime"]])<-"alien_egfp_WPRE"
+seqnames(gtfs[["3_prime"]])<-"alien_egfp_WPRE"
+
+tracks<-c("24_nt","44_nt","3_prime")
+
+gms<-list()
+  for (i in tracks){
+  
+    gms[[i]] <- GeneRegionTrack(gtfs[[i]],
+                           chromosome=x,
+                           name="",
+                           geneSymbol=TRUE,
+                           showId=TRUE,
+                           transcriptAnnotation="gene")
+  
+    gms[[i]]@range$gene<-gtfs[[i]]$gene_id
+    wanted_regions<-c("5_UTR_egfp_WPRE",
+                    "5_to_ROI_egfp",
+                    "ROI_egfp",
+                    "RoCK_egfp",
+                    "capture_sequence_double_egfp_egfp",
+                    "3_to_capture",
+                    "3_UTR_egfp_WPRE")
+  
+    gms[[i]]@range<-gms[[i]]@range[which(gms[[i]]@range$gene %in% 
+                                           wanted_regions)]
+
+    displayPars(gms[[i]]) <- list(fill=ifelse(gms[[i]]@range$gene %in% 
+                                                gms[[i]]@range$gene[grep("UTR",gms[[i]]@range$gene)], 
+                                              "white", 
+                                              "forestgreen"))
+  
+    displayPars(gms[[i]])<-list(col="black",
+                           cex.group=0.5,
+                           col.line="black",
+                           fontcolor.group="black")
+  }
+
+plotTracks(c(coverage_chr[["2_unmod"]],
+               coverage_chr[["2_mod_24"]],
+               gms[["24_nt"]],
+               coverage_chr[["2_mod_44"]],
+               gms[["44_nt"]],
+               coverage_chr[["2_mod_3_prime"]],
+               gms[["3_prime"]]),
+           type="histogram",
+           from=start(gms[["24_nt"]]@range)[1]-500,
+           end=gms[["24_nt"]]@end,
+           cex.axis = 0.5,
+           cex.title=0.5,
+           background.title="white",
+           col.axis="black",
+           col.title="black",
+           col.border.title="black",
+           showSampleNames = TRUE,
+           lwd.title=0.5)
+
+
+```
+
+
+### Session info
+
+```{r}
+
+sessionInfo()
+
+```

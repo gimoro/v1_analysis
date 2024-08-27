@@ -1,0 +1,296 @@
+---
+title: "Mapping stats"
+author: "Giulia Moro, Izaskun Mallona, Mark D. Robinson"
+format: 
+  pdf: 
+    toc: true
+    embed-resources: true
+    keep_md: true
+    documentclass: article
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontsize{8pt}{8pt}\selectfont
+
+### Load packages, load data 
+
+```{r,warning=FALSE, message=FALSE}
+
+rm(list=ls())
+
+library(SingleCellExperiment)
+library(scran)
+library(ggplot2)
+library(dplyr)
+library(scater)
+library(reshape2)
+library(UpSetR)
+library(limma)
+library(cowplot)
+library(pheatmap)
+library(readr)
+library(plotROC)
+library(here)
+library(RColorBrewer)
+library(ggnewscale)
+library(scales)
+library(rmarkdown)
+library(irlba)
+library(viridis)
+library(gridExtra)
+library(googlesheets4)
+library(tools)
+library(viridis)
+library(scDblFinder)
+library(ggrastr)
+library(khroma)
+library(Matrix)
+library(edgeR)
+library(GGally)
+
+```
+
+### Setting up knitr 
+
+```{r}
+
+knitr::opts_chunk$set(fig.width = 2.7,
+               fig.height = 2.7,
+               fig.align = "center",
+               include = TRUE,
+               dev = c("png","svg"),
+               cache=TRUE,
+               cache.lazy = FALSE,
+               warning = TRUE,
+               message = TRUE)
+
+```
+
+### Themes
+
+```{r}
+
+rock_roi_theme<-function(){
+  theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=5),
+        aspect.ratio=1,
+        legend.key.size = unit(0.5, 'cm'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+}
+
+rock_roi_theme_multiple_panels<-function(){
+    theme(axis.text = element_text(size=5), 
+        plot.title=element_text(size=7,face="bold",hjust=0.5),
+        axis.title=element_text(size=7,face="bold"),
+        strip.text=element_text(size=7,face="bold"),
+        aspect.ratio=1,
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title=element_text(size=7,face="bold"),
+        legend.text=element_text(size=7),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-5,-5,-5,-5),
+        legend.title.align=0.5,
+        panel.border = element_rect(colour = "black", fill = NA))
+}
+
+```
+
+### Defining colors
+
+```{r}
+
+myscale<-c("#AA3377","#66CCEE","#009988","#DDCC77")
+
+# defining colors for samples and for species
+
+names(myscale) <- c("unmod","s_24","3_prime","s_44")
+
+#plot(1:4, col=myscale, pch=19, cex=4)
+
+```
+
+### Loading data Log.final.out
+
+```{r}
+
+datadir <- "/Users/gimoro/Desktop/v1_analysis_thesis/mapping_stats/"
+
+rdss <- dir(file.path(datadir, "*.Log.final.out"), 
+            recursive = TRUE, 
+            full.names = TRUE)
+
+samples<-c("first_mod_2","first_mod_4","first_unmod_3",
+           "first_unmod_1","second_mod_24",
+           "second_mod_44","second_mod_3_prime",
+           "second_unmod","third_mod","third_unmod")
+
+summary_stats<-list()
+
+for (i in samples){
+    dir<-paste0(datadir,"/",i,"_","Log.final.out")
+    summary_stats[[i]]<-read.delim(dir,header=FALSE, 
+                                   comment.char="#")
+    #colnames(summary_stats[[i]])<-c("stats","values")
+}
+
+```
+
+### Loading data from Summary.csv
+
+```{r}
+
+rdss <- dir(file.path(datadir, "Summary.csv"), 
+            recursive = TRUE, 
+            full.names = TRUE)
+
+samples_first<-c("first_mod_2","first_mod_4",
+                 "first_unmod_3","first_unmod_1")
+samples_second<-c("second_mod_3_prime","second_mod_44",
+                  "second_mod_24","second_unmod")
+samples_third<-c("third_mod","third_unmod")
+summary_csv_stats<-list()
+
+experiments<-c("first_scRNAseq","second_scRNAseq","third_scRNAseq")
+
+# first experiment
+
+for (i in samples_first){
+    dir<-paste0(datadir,"/","first_scRNAseq","/",i,"_Solo.out","/Gene/","Summary.csv")
+    summary_csv_stats[[i]]<-read.csv(dir,header=FALSE)
+    #colnames(summary_stats[[i]])<-c("stats","values")
+}
+
+# second experiment
+
+for (i in samples_second){
+    dir<-paste0(datadir,"/","second_scRNAseq","/",i,"_Solo.out","/Gene/","Summary.csv")
+    summary_csv_stats[[i]]<-read.csv(dir,header=FALSE)
+    #colnames(summary_stats[[i]])<-c("stats","values")
+}
+
+# third experiment
+
+for (i in samples_third){
+    dir<-paste0(datadir,"/","third_scRNAseq","/",i,"_Solo.out","/Gene/","Summary.csv")
+    summary_csv_stats[[i]]<-read.csv(dir,header=FALSE)
+    #colnames(summary_stats[[i]])<-c("stats","values")
+}
+
+```
+
+### Loading barcode stats
+
+```{r}
+
+rdss <- dir(file.path(datadir, "Barcodes.stats"), 
+            recursive = TRUE, 
+            full.names = TRUE)
+
+summary_barcodes_stats<-list()
+
+# first experiment
+
+for (i in samples_first){
+    dir<-paste0(datadir,"/","first_scRNAseq","/",i,"_Solo.out/","Barcodes.stats")
+    summary_barcodes_stats[[i]]<-read.table(dir, quote="\"", comment.char="")
+}
+
+# second experiment
+
+for (i in samples_second){
+    dir<-paste0(datadir,"/","second_scRNAseq","/",i,"_Solo.out/","Barcodes.stats")
+    summary_barcodes_stats[[i]]<-read.table(dir, quote="\"", comment.char="")
+}
+
+# third experiment
+
+for (i in samples_third){
+    dir<-paste0(datadir,"/","third_scRNAseq","/",i,"_Solo.out/","Barcodes.stats")
+    summary_barcodes_stats[[i]]<-read.table(dir, quote="\"", comment.char="")
+}
+
+```
+
+### Combining stats Summary.csv
+
+```{r}
+
+rownames(summary_stats[[i]])<-summary_stats[[i]]$V1
+
+df_summary<-data.frame(matrix(nrow=length(rownames(summary_stats[[i]])),ncol=10))
+rownames(df_summary)<-rownames(summary_stats[[i]])
+
+colnames(df_summary)<-names(summary_stats)
+
+for(i in names(summary_stats)){
+  df_summary[,i]<-summary_stats[[i]]$V2
+}
+
+df_summary<-df_summary[c(9,10,24,26,31),]
+
+write.csv(df_summary,file.path(datadir,"complete_summary.csv"))
+
+```
+
+### Combining stats Log.csv
+
+```{r}
+summary_csv_stats
+rownames(summary_csv_stats[[i]])<-summary_csv_stats[[i]]$V1
+
+df_summary<-data.frame(matrix(nrow=length(rownames(summary_csv_stats[[i]])),ncol=10))
+rownames(df_summary)<-rownames(summary_csv_stats[[i]])
+
+colnames(df_summary)<-names(summary_csv_stats)
+
+for(i in names(summary_csv_stats)){
+  df_summary[,i]<-summary_csv_stats[[i]]$V2
+}
+
+df_summary<-df_summary[c(2,3,4,5,6,7,8,9,11,12),]
+
+write.csv(df_summary,file.path(datadir,"log_out_summary.csv"))
+
+```
+
+### Combining stats summary_barcodes
+
+```{r}
+
+rownames(summary_barcodes_stats[[i]])<-summary_barcodes_stats[[i]]$V1
+
+df_summary<-data.frame(matrix(nrow=length(rownames(summary_barcodes_stats[[i]])),ncol=10))
+rownames(df_summary)<-rownames(summary_barcodes_stats[[i]])
+
+colnames(df_summary)<-names(summary_barcodes_stats)
+
+for(i in names(summary_barcodes_stats)){
+  df_summary[,i]<-summary_barcodes_stats[[i]]$V2
+}
+
+write.csv(df_summary,file.path(datadir,"barcodes_summary.csv"))
+
+```
+
+
+### Session info
+
+```{r}
+
+sessionInfo()
+
+```
+
+
